@@ -1,0 +1,9 @@
+openai
+pdfplumber
+pypdf
+pandas
+openpyxl
+chromadb
+psycopg2-binary
+gradio
+python-dotenv
