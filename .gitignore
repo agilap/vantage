@@ -15,6 +15,10 @@ env/
 # Local vector store persistence
 chroma_db/
 
+# Generated local test artifacts
+data/processed/ingest_verify/
+data/processed/test_fixtures/
+
 # Build and packaging artifacts
 build/
 dist/
