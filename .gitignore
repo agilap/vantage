@@ -17,6 +17,7 @@ chroma_db/
 
 # Generated local test artifacts
 data/processed/ingest_verify/
+data/processed/ingest_verify_recheck/
 data/processed/test_fixtures/
 
 # Build and packaging artifacts
