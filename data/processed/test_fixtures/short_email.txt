@@ -1,0 +1,5 @@
+Subject: Ping
+From: ops@example.com
+Date: 2026-03-26
+
+Noted.
