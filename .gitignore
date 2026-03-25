@@ -12,6 +12,9 @@ env/
 # Environment files
 .env
 
+# Local vector store persistence
+chroma_db/
+
 # Build and packaging artifacts
 build/
 dist/
