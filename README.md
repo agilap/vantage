@@ -75,17 +75,15 @@ python main.py
 6. Validate grounded answers using source citations and excerpts.
 
 ## Example Queries
-
-After ingesting your documents, try these in the Query tab:
-
-- "What is [company name]'s revenue for fiscal year 2023?"
-- "What were the key risks mentioned across all annual reports?"
-- "What action items were assigned in the board emails?"
-- "Which companies reported EBITDA above $1B?"
-- "What decisions were made in the most recent board update?"
-- "Summarize the financial performance across all ingested documents."
-
-These are designed to work across PDFs, Excel, and email files together — showing cross-document retrieval in a single answer.
+| Query | What it tests |
+|-------|---------------|
+| What was Apple's total revenue in fiscal year 2023? | Cross-document numeric retrieval (PDF 10-K) |
+| Compare gross margins across the ingested 10-K filings. | Multi-document synthesis |
+| Which companies mentioned supply chain risk as a key risk factor? | Semantic search across sections |
+| What is the net income trend for Microsoft over the last three years? | Time-series extraction from structured text |
+| Summarize the email thread about Q3 projections. | Email body retrieval and summarization |
+| What does the revenue sheet show for Q2? | Tabular row-group retrieval (Excel) |
+| Which filing has the highest R&D spend as a percentage of revenue? | Ratio reasoning across documents |
 
 ## File Map
 - architecture.md: system architecture, schema, costs, and scale path.
