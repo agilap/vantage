@@ -1,0 +1,7 @@
+Subject: Q4 Capital Allocation Review
+From: strategy.office@northbridge-capital.com
+Date: 2024-01-18
+
+Team, after reviewing 2023 filings across large-cap tech, we are proposing tighter capex gating for 2024. The highest spend acceleration came from AI infrastructure buildouts, particularly at NVDA and MSFT.
+
+Action for FP&A: model three downside demand cases and include a stress test with 150 bps higher funding costs. Decision window remains end of month after treasury finalizes covenant headroom.
