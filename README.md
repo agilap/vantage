@@ -74,6 +74,19 @@ python main.py
 5. Ask natural language questions.
 6. Validate grounded answers using source citations and excerpts.
 
+## Example Queries
+
+After ingesting your documents, try these in the Query tab:
+
+- "What is [company name]'s revenue for fiscal year 2023?"
+- "What were the key risks mentioned across all annual reports?"
+- "What action items were assigned in the board emails?"
+- "Which companies reported EBITDA above $1B?"
+- "What decisions were made in the most recent board update?"
+- "Summarize the financial performance across all ingested documents."
+
+These are designed to work across PDFs, Excel, and email files together — showing cross-document retrieval in a single answer.
+
 ## File Map
 - architecture.md: system architecture, schema, costs, and scale path.
 - cache.py: embedding cache read/write with SHA-256 keys.

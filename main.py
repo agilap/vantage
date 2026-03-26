@@ -487,12 +487,25 @@ def _render_active_datasets_html(limit: int = 8) -> str:
 
 def _summary_row(result: dict, fallback_filename: str = "") -> list[Any]:
 	"""Build one ingest summary row."""
+	status = _status_for_result(result)
+	notes = ""
+	if result.get("already_ingested"):
+		notes = "already ingested"
+	elif status.startswith("failed"):
+		error_text = str(result.get("error", ""))
+		notes = error_text[:60]
+	elif status == "skipped":
+		notes = "skipped"
+	elif status == "done":
+		notes = str(result.get("parse_method", ""))
+
 	return [
 		result.get("filename", fallback_filename),
 		result.get("file_type", "unknown"),
 		result.get("chunk_count", 0),
 		result.get("field_count", 0),
-		_status_for_result(result),
+		status,
+		notes,
 	]
 
 
@@ -601,7 +614,7 @@ async def on_ingest_submit(files: Any, folder_path: str):
 	valid_paths, invalid_names = _split_supported_paths(paths_to_ingest)
 	if invalid_names:
 		for name in invalid_names:
-			summary_rows.append([name, "unknown", 0, 0, "skipped: unsupported file type"])
+			summary_rows.append([name, "unknown", 0, 0, "skipped", "skipped"])
 
 	if not valid_paths:
 		yield "No supported files found. Supported types: %s" % SUPPORTED_TYPE_COPY, summary_rows, 0
@@ -791,7 +804,7 @@ def build_ui() -> gr.Blocks:
 						gr.HTML("<div class='vantage-subtle-label'>Ingest summary</div>")
 						ingest_summary = gr.Dataframe(
 							show_label=False,
-							headers=["Filename", "Type", "Chunks", "Fields", "Status"],
+							headers=["Filename", "Type", "Chunks", "Fields", "Status", "Notes"],
 							value=[],
 						)
 

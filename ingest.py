@@ -334,9 +334,11 @@ async def ingest_file(file_path: str) -> dict:
 
 	try:
 		parse_timeout = _parse_timeout_for_file(file_path, file_type)
+		parse_method = ""
 		if file_type == "pdf":
 			parsed = await asyncio.wait_for(asyncio.to_thread(parse_pdf, file_path), timeout=parse_timeout)
 			parse_error = parsed.get("error")
+			parse_method = str(parsed.get("metadata", {}).get("parse_method", ""))
 		elif file_type == "excel":
 			parsed = await asyncio.wait_for(asyncio.to_thread(parse_excel, file_path), timeout=parse_timeout)
 			parse_error = parsed[0].get("error") if parsed and isinstance(parsed[0], dict) else None
@@ -432,6 +434,7 @@ async def ingest_file(file_path: str) -> dict:
 			"chunk_count": len(chunks),
 			"field_count": field_count,
 			"status": "done",
+			"parse_method": parse_method,
 		}
 	except asyncio.TimeoutError:
 		error_message = "ingest timeout for %s after %ss" % (filename, FILE_INGEST_TIMEOUT_SECONDS)
