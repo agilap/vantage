@@ -1,4 +1,5 @@
 import asyncio
+import html
 import importlib.util
 import re
 import sys
@@ -423,6 +424,46 @@ def _sanitize_error_message(message: str) -> str:
 	return error_text
 
 
+def _render_active_datasets_html(limit: int = 8) -> str:
+	"""Render recently ingested datasets from the database for sidebar display."""
+	conn = db.get_connection()
+	try:
+		with conn.cursor() as cur:
+			cur.execute(
+				"""
+				SELECT filename, file_type
+				FROM documents
+				WHERE status = 'done'
+				ORDER BY created_at DESC
+				LIMIT %s
+				""",
+				(limit,),
+			)
+			rows = cur.fetchall()
+	finally:
+		db.release_connection(conn)
+
+	if not rows:
+		return (
+			"<div style='display:flex;flex-direction:column;gap:10px;font-family:Inter,sans-serif;font-size:13px;color:#eaf6ee;line-height:1.45;'>"
+			"<div>No datasets ingested yet.</div>"
+			"<div>Use the Ingest tab to upload documents.</div>"
+			"</div>"
+		)
+
+	items = []
+	for filename, file_type in rows:
+		name = html.escape(str(filename or "Unnamed"))
+		type_text = html.escape(str(file_type or "unknown").upper())
+		items.append("<div><span style='opacity:0.75;'>[%s]</span> %s</div>" % (type_text, name))
+
+	return (
+		"<div style='display:flex;flex-direction:column;gap:10px;font-family:Inter,sans-serif;font-size:13px;color:#eaf6ee;line-height:1.45;'>"
+		+ "".join(items)
+		+ "</div>"
+	)
+
+
 def _summary_row(result: dict, fallback_filename: str = "") -> list[Any]:
 	"""Build one ingest summary row."""
 	return [
@@ -673,7 +714,7 @@ async def on_ingest_submit_ui(files: Any, folder_path: str):
 			"**Completed:** %d/%d"
 		) % (stage, active_text, completed, total)
 
-		yield status_html, progress_md, summary_rows, percent
+		yield status_html, progress_md, summary_rows, percent, _render_active_datasets_html()
 
 
 def build_ui() -> gr.Blocks:
@@ -774,29 +815,33 @@ def build_ui() -> gr.Blocks:
 								query_latency = gr.Textbox(show_label=False, interactive=False)
 
 						with gr.Column(scale=4):
-							gr.HTML(
-								"""
+							with gr.Column():
+								gr.HTML(
+									"""
 <aside class="vantage-sidebar">
   <h4>Active Datasets</h4>
-	<div style="margin-top:14px;display:flex;flex-direction:column;gap:10px;font-family:Inter,sans-serif;font-size:13px;color:#eaf6ee;line-height:1.45;">
-		<div>Datasets are shown after ingest.</div>
-		<div>Use the Ingest tab to upload new documents.</div>
-		<div>Query will cite indexed chunks automatically.</div>
-  </div>
+  <div id="active-datasets-slot"></div>
 </aside>
 """
-							)
+								)
+								active_datasets = gr.HTML(value=_render_active_datasets_html())
 
 		ingest_button.click(
 			fn=on_ingest_submit_ui,
 			inputs=[ingest_files, ingest_folder_path],
-			outputs=[ingest_status, ingest_progress, ingest_summary, ingest_progress_bar],
+			outputs=[ingest_status, ingest_progress, ingest_summary, ingest_progress_bar, active_datasets],
 		)
 
 		query_button.click(
 			fn=on_query_submit,
 			inputs=[query_input],
 			outputs=[query_answer, query_sources, query_latency],
+		)
+
+		demo.load(
+			fn=_render_active_datasets_html,
+			inputs=[],
+			outputs=[active_datasets],
 		)
 
 	return demo

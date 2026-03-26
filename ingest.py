@@ -1,6 +1,7 @@
 import asyncio
 import hashlib
 import json
+import re
 from pathlib import Path
 from uuid import uuid4
 
@@ -126,6 +127,58 @@ def _update_document_status(
 		conn.commit()
 	finally:
 		release_connection(conn)
+
+
+def _update_document_filename(document_id: str, filename: str) -> None:
+	"""Update stored document display filename."""
+	conn = get_connection()
+	try:
+		with conn.cursor() as cur:
+			cur.execute(
+				"""
+				UPDATE documents
+				SET filename = %s
+				WHERE id = %s::uuid
+				""",
+				(filename, document_id),
+			)
+		conn.commit()
+	finally:
+		release_connection(conn)
+
+
+def _sanitize_label(value: str) -> str:
+	"""Normalize text for compact display labels."""
+	label = " ".join(str(value or "").split())
+	label = re.sub(r"[\x00-\x1F\x7F]", "", label)
+	return label.strip()
+
+
+def _truncate_label(value: str, max_len: int) -> str:
+	"""Truncate labels without breaking readability."""
+	cleaned = _sanitize_label(value)
+	if len(cleaned) <= max_len:
+		return cleaned
+	return cleaned[: max_len - 1].rstrip() + "..."
+
+
+def _email_summary_filename(parsed: dict, fallback_filename: str) -> str:
+	"""Build a meaningful display name for email-like documents."""
+	subject = _truncate_label(str(parsed.get("subject", "")), 80)
+	sender = _truncate_label(str(parsed.get("sender", "")), 40)
+	date = _truncate_label(str(parsed.get("date", "")), 24)
+
+	parts: list[str] = []
+	if subject:
+		parts.append(subject)
+	if sender:
+		parts.append("from %s" % sender)
+	if date:
+		parts.append(date)
+
+	if not parts:
+		return fallback_filename
+	return "Email: %s" % " | ".join(parts)
 
 
 def _bulk_insert_chunks(document_id: str, chunks: list[dict]) -> None:
@@ -258,6 +311,10 @@ async def ingest_file(file_path: str) -> dict:
 		else:
 			parsed = await asyncio.wait_for(asyncio.to_thread(parse_email, file_path), timeout=parse_timeout)
 			parse_error = parsed.get("error")
+			summary_name = _email_summary_filename(parsed, fallback_filename=filename)
+			if summary_name != filename:
+				_update_document_filename(document_id, summary_name)
+				filename = summary_name
 
 		if parse_error:
 			_update_document_status(document_id, status="failed", error=str(parse_error))
