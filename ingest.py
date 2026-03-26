@@ -21,7 +21,7 @@ PARSE_TIMEOUT_BY_TYPE_SECONDS = {
 	"excel": 60,
 	"email": 20,
 }
-EMBED_EXTRACT_TIMEOUT_SECONDS = 180
+EMBED_EXTRACT_TIMEOUT_SECONDS = 900
 
 
 def _file_size_mb(file_path: str) -> float:
@@ -36,8 +36,10 @@ def _ingest_timeout_for_file(file_path: str, file_type: str) -> int:
 	"""Compute adaptive timeout so larger files get enough processing budget."""
 	size_mb = _file_size_mb(file_path)
 	if file_type == "pdf":
-		# Annual reports are often table-heavy and much slower to parse/chunk.
-		return int(min(1200, max(300, 240 + (size_mb * 30))))
+		# 90-page PDF at ~150 chunks: parsing ~30s + embedding ~20s +
+		# batched extraction (6 batches * 25 chunks * ~3s avg + 2s sleep) ~120s
+		# Total realistic ceiling: ~300s. Add 2x safety margin for retries.
+		return int(min(1800, max(600, 300 + (size_mb * 40))))
 	if file_type == "excel":
 		return int(min(900, max(240, 180 + (size_mb * 20))))
 	if file_type == "email":
@@ -50,7 +52,7 @@ def _parse_timeout_for_file(file_path: str, file_type: str) -> int:
 	base = PARSE_TIMEOUT_BY_TYPE_SECONDS.get(file_type, 60)
 	size_mb = _file_size_mb(file_path)
 	if file_type == "pdf":
-		return int(min(900, max(base, 90 + (size_mb * 20))))
+		return int(min(600, max(120, 90 + (size_mb * 15))))
 	if file_type == "excel":
 		return int(min(600, max(base, 60 + (size_mb * 12))))
 	return int(base)
@@ -375,6 +377,11 @@ async def ingest_file(file_path: str) -> dict:
 			}
 
 		chunks = chunk_document(parsed, file_type)
+		if len(chunks) > 100:
+			print(
+				f"[INFO] {filename}: {len(chunks)} chunks — using batched extraction "
+				f"(batches of {25}, ~{round(len(chunks) / 25)} batches)"
+			)
 		if not chunks:
 			error_message = "no chunks generated"
 			all_excel_sheets_skipped = (
