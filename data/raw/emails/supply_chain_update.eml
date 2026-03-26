@@ -1,0 +1,9 @@
+Subject: Supply Chain Update - Component Availability
+From: rachel.nguyen@vantage.example
+Date: Mon, 12 Aug 2024 08:15:00 -0500
+
+Our latest supplier check-in shows continued shortages in high-density memory modules from Micron and power management ICs from Infineon. Current inbound allocations remain below committed volumes for the next two production cycles.
+
+Lead times for the affected assemblies have stretched from six weeks to nine weeks, with the largest impact on premium configuration SKUs. Teams should prioritize customer orders that include contractual delivery penalties and defer low-margin bundles until material flow normalizes.
+
+Procurement is negotiating secondary coverage with Texas Instruments distributors and evaluating alternate BOM paths for two controller boards. We expect mitigation actions to recover approximately 35% of the current gap by month-end if substitute qualification completes on schedule.
