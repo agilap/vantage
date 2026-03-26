@@ -14,6 +14,13 @@ from parse.pdf import parse_pdf
 
 
 _FILE_HASH_COLUMN_READY = False
+FILE_INGEST_TIMEOUT_SECONDS = 240
+PARSE_TIMEOUT_BY_TYPE_SECONDS = {
+	"pdf": 90,
+	"excel": 60,
+	"email": 20,
+}
+EMBED_EXTRACT_TIMEOUT_SECONDS = 180
 
 
 def detect_file_type(file_path: str) -> str:
@@ -241,14 +248,15 @@ async def ingest_file(file_path: str) -> dict:
 	)
 
 	try:
+		parse_timeout = PARSE_TIMEOUT_BY_TYPE_SECONDS.get(file_type, 60)
 		if file_type == "pdf":
-			parsed = parse_pdf(file_path)
+			parsed = await asyncio.wait_for(asyncio.to_thread(parse_pdf, file_path), timeout=parse_timeout)
 			parse_error = parsed.get("error")
 		elif file_type == "excel":
-			parsed = parse_excel(file_path)
+			parsed = await asyncio.wait_for(asyncio.to_thread(parse_excel, file_path), timeout=parse_timeout)
 			parse_error = parsed[0].get("error") if parsed and isinstance(parsed[0], dict) else None
 		else:
-			parsed = parse_email(file_path)
+			parsed = await asyncio.wait_for(asyncio.to_thread(parse_email, file_path), timeout=parse_timeout)
 			parse_error = parsed.get("error")
 
 		if parse_error:
@@ -267,9 +275,12 @@ async def ingest_file(file_path: str) -> dict:
 
 		_update_document_status(document_id, status="processing")
 
-		_, extracted_fields = await asyncio.gather(
-			embed_and_store_chunks(document_id, chunks, file_type),
-			run_extraction(document_id, chunks, file_type),
+		_, extracted_fields = await asyncio.wait_for(
+			asyncio.gather(
+				embed_and_store_chunks(document_id, chunks, file_type),
+				run_extraction(document_id, chunks, file_type),
+			),
+			timeout=EMBED_EXTRACT_TIMEOUT_SECONDS,
 		)
 
 		_bulk_insert_chunks(document_id, chunks)
@@ -286,9 +297,39 @@ async def ingest_file(file_path: str) -> dict:
 			"field_count": field_count,
 			"status": "done",
 		}
+	except asyncio.TimeoutError:
+		error_message = "ingest timeout for %s after %ss" % (filename, FILE_INGEST_TIMEOUT_SECONDS)
+		_update_document_status(document_id, status="failed", error=error_message)
+		return {
+			"document_id": document_id,
+			"filename": filename,
+			"file_type": file_type,
+			"status": "failed",
+			"error": error_message,
+		}
+	except asyncio.CancelledError:
+		error_message = "ingest cancelled for %s" % filename
+		_update_document_status(document_id, status="failed", error=error_message)
+		raise
 	except Exception as error:
 		_update_document_status(document_id, status="failed", error=str(error))
 		raise
+
+
+async def ingest_file_with_timeout(file_path: str, timeout_seconds: int = FILE_INGEST_TIMEOUT_SECONDS) -> dict:
+	"""Run ingest_file with a hard timeout so one stuck file cannot block batches."""
+	filename = Path(file_path).name
+	try:
+		return await asyncio.wait_for(ingest_file(file_path), timeout=timeout_seconds)
+	except asyncio.TimeoutError:
+		return {
+			"filename": filename,
+			"file_type": detect_file_type(file_path),
+			"chunk_count": 0,
+			"field_count": 0,
+			"status": "failed",
+			"error": "timeout after %ss" % timeout_seconds,
+		}
 
 
 async def ingest_folder(folder_path: str) -> list[dict]:
@@ -300,7 +341,7 @@ async def ingest_folder(folder_path: str) -> list[dict]:
 		if not path.is_file():
 			continue
 		try:
-			result = await ingest_file(str(path))
+			result = await ingest_file_with_timeout(str(path), timeout_seconds=FILE_INGEST_TIMEOUT_SECONDS)
 			results.append(result)
 		except Exception as error:
 			print("Failed to ingest %s: %s" % (path.name, error))
