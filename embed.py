@@ -21,27 +21,27 @@ async def embed_batch(texts: list[str]) -> list[list[float]]:
 		return []
 
 	results: list[list[float] | None] = [None] * len(texts)
-	misses_texts: list[str] = []
-	misses_indexes: list[int] = []
+	misses_by_text: dict[str, list[int]] = {}
 
 	for index, text in enumerate(texts):
 		cached = get_cached_embedding(text)
 		if cached is None:
-			misses_indexes.append(index)
-			misses_texts.append(text)
+			misses_by_text.setdefault(text, []).append(index)
 		else:
 			results[index] = cached
 
-	if misses_texts:
+	if misses_by_text:
+		unique_miss_texts = list(misses_by_text.keys())
 		response = await client.embeddings.create(
 			model="text-embedding-3-small",
-			input=misses_texts,
+			input=unique_miss_texts,
 		)
 		for miss_offset, embedding_data in enumerate(response.data):
-			target_index = misses_indexes[miss_offset]
+			text_value = unique_miss_texts[miss_offset]
 			embedding = embedding_data.embedding
-			store_embedding(texts[target_index], embedding)
-			results[target_index] = embedding
+			store_embedding(text_value, embedding)
+			for target_index in misses_by_text[text_value]:
+				results[target_index] = embedding
 
 	return [embedding if embedding is not None else [] for embedding in results]
 

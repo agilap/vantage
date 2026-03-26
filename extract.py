@@ -45,14 +45,25 @@ async def summarize_chunk(chunk: dict) -> str:
 @with_retry(exceptions=(openai.RateLimitError, openai.APITimeoutError))
 async def run_extraction(document_id: str, chunks: list[dict], file_type: str) -> list[dict]:
 	"""Run extraction concurrently for all chunks and return a flat field list."""
-	tasks = [extract_fields(chunk, file_type) for chunk in chunks]
-	extracted_per_chunk = await asyncio.gather(*tasks)
+	content_to_indexes: dict[str, list[int]] = {}
+	for idx, chunk in enumerate(chunks):
+		content_key = str(chunk.get("content", "")).strip()
+		content_to_indexes.setdefault(content_key, []).append(idx)
+
+	unique_chunks = [chunks[indexes[0]] for indexes in content_to_indexes.values()]
+	tasks = [extract_fields(chunk, file_type) for chunk in unique_chunks]
+	unique_results = await asyncio.gather(*tasks)
+
+	extracted_per_chunk: list[list[dict]] = [[] for _ in chunks]
+	for (content_key, indexes), fields in zip(content_to_indexes.items(), unique_results):
+		if not isinstance(fields, list):
+			fields = []
+		for idx in indexes:
+			extracted_per_chunk[idx] = fields
 
 	results: list[dict] = []
 	for chunk, fields in zip(chunks, extracted_per_chunk):
 		chunk_id = chunk.get("id", chunk.get("chunk_index"))
-		if not isinstance(fields, list):
-			continue
 		for field in fields:
 			if not isinstance(field, dict):
 				continue
