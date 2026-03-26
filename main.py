@@ -17,8 +17,64 @@ import gradio as gr
 sys.modules.pop("chunk", None)
 
 import db
-from ingest import ingest_file, ingest_folder
+from ingest import ingest_file
 from retrieval import query_documents
+
+
+MAX_CONCURRENT_INGEST = 4
+
+APP_CSS = """
+:root {
+	--v-bg: radial-gradient(1200px 700px at 10% -10%, #7fd18b33, transparent 60%),
+					 radial-gradient(900px 500px at 100% 10%, #4aa76a26, transparent 55%),
+					 linear-gradient(140deg, #f3f9f2 0%, #e8f3e8 45%, #dceddf 100%);
+	--v-surface: rgba(255, 255, 255, 0.82);
+	--v-stroke: rgba(49, 95, 63, 0.20);
+	--v-accent: #1f7a49;
+	--v-text: #153423;
+}
+
+.gradio-container {
+	background: var(--v-bg);
+}
+
+#vantage-shell {
+	max-width: 1120px;
+	margin: 18px auto;
+	border: 1px solid var(--v-stroke);
+	border-radius: 20px;
+	background: var(--v-surface);
+	box-shadow: 0 18px 60px rgba(30, 70, 45, 0.18);
+	backdrop-filter: blur(8px);
+}
+
+#vantage-header h1 {
+	margin: 0;
+	color: var(--v-text);
+	letter-spacing: 0.3px;
+}
+
+#vantage-header p {
+	margin: 4px 0 0;
+	color: #255539;
+}
+
+.vantage-card {
+	border: 1px solid var(--v-stroke);
+	border-radius: 14px;
+	background: rgba(255, 255, 255, 0.76);
+}
+
+.vantage-card .wrap {
+	border-radius: 12px;
+}
+
+button.primary {
+	background: linear-gradient(135deg, #2f8a59, #1f7a49) !important;
+	border: none !important;
+	box-shadow: 0 10px 25px rgba(31, 122, 73, 0.28);
+}
+"""
 
 
 def _file_paths_from_uploads(files: Any) -> list[str]:
@@ -59,6 +115,38 @@ def _summary_row(result: dict, fallback_filename: str = "") -> list[Any]:
 	]
 
 
+async def _ingest_one_file(file_path: str) -> dict:
+	"""Run ingest for one file and normalize failures to result dict."""
+	filename = Path(file_path).name
+	try:
+		return await ingest_file(file_path)
+	except Exception as error:
+		return {
+			"filename": filename,
+			"file_type": "unknown",
+			"chunk_count": 0,
+			"field_count": 0,
+			"status": "failed",
+			"error": str(error),
+		}
+
+
+async def _run_ingest_concurrent(file_paths: list[str]):
+	"""Process files concurrently and yield each result as soon as it completes."""
+	if not file_paths:
+		return
+
+	semaphore = asyncio.Semaphore(MAX_CONCURRENT_INGEST)
+
+	async def worker(path: str):
+		async with semaphore:
+			return path, await _ingest_one_file(path)
+
+	tasks = [asyncio.create_task(worker(path)) for path in file_paths]
+	for completed in asyncio.as_completed(tasks):
+		yield await completed
+
+
 async def on_ingest_submit(files: Any, folder_path: str):
 	"""Handle ingest requests and stream progress updates."""
 	summary_rows: list[list[Any]] = []
@@ -66,40 +154,31 @@ async def on_ingest_submit(files: Any, folder_path: str):
 	folder_text = (folder_path or "").strip()
 
 	if uploaded_paths:
-		for file_path in uploaded_paths:
+		yield "Processing %d files concurrently..." % len(uploaded_paths), summary_rows
+		async for file_path, result in _run_ingest_concurrent(uploaded_paths):
 			filename = Path(file_path).name
-			progress = "Processing %s... Parsing... Chunking... Embedding... Extracting..." % filename
-			yield progress, summary_rows
-			try:
-				result = await ingest_file(file_path)
-			except Exception as error:
-				result = {
-					"filename": filename,
-					"file_type": "unknown",
-					"chunk_count": 0,
-					"field_count": 0,
-					"status": "failed",
-					"error": str(error),
-				}
-
 			summary_rows.append(_summary_row(result, fallback_filename=filename))
 			progress = "Processing %s... Parsing... Chunking... Embedding... Extracting... Done." % filename
 			yield progress, summary_rows
 		return
 
 	if folder_text:
-		yield "Processing folder...", summary_rows
-		try:
-			folder_results = await ingest_folder(folder_text)
-		except Exception as error:
-			yield "Folder ingest failed: %s" % error, summary_rows
+		folder = Path(folder_text)
+		if not folder.exists() or not folder.is_dir():
+			yield "Folder ingest failed: folder path not found", summary_rows
 			return
 
-		for result in folder_results:
-			filename = str(result.get("filename", "unknown"))
-			summary_rows.append(_summary_row(result, fallback_filename=filename))
-			progress = "Processing %s... Parsing... Chunking... Embedding... Extracting... Done." % filename
-			yield progress, summary_rows
+		folder_paths = [str(path) for path in sorted(folder.iterdir()) if path.is_file()]
+		yield "Processing %d files from folder concurrently..." % len(folder_paths), summary_rows
+		try:
+			async for file_path, result in _run_ingest_concurrent(folder_paths):
+				filename = Path(file_path).name
+				summary_rows.append(_summary_row(result, fallback_filename=filename))
+				progress = "Processing %s... Parsing... Chunking... Embedding... Extracting... Done." % filename
+				yield progress, summary_rows
+		except Exception as error:
+			yield "Folder ingest failed: %s" % error, summary_rows
+
 		return
 
 	yield "Provide uploaded files or a folder path.", summary_rows
@@ -138,30 +217,44 @@ async def on_query_submit(query: str):
 
 def build_ui() -> gr.Blocks:
 	"""Build the Gradio interface for Vantage."""
-	with gr.Blocks(title="Vantage") as demo:
-		gr.Markdown("# Vantage — Document Intelligence")
-
-		with gr.Tab("Ingest"):
-			ingest_files = gr.File(label="Upload Files", file_count="multiple")
-			ingest_folder_path = gr.Textbox(label="Or paste a folder path")
-			ingest_button = gr.Button("Ingest")
-			ingest_progress = gr.Textbox(label="Progress", interactive=False)
-			ingest_summary = gr.Dataframe(
-				label="Ingest Summary",
-				headers=["Filename", "Type", "Chunks", "Fields", "Status"],
-				value=[],
+	with gr.Blocks(
+		title="Vantage",
+		css=APP_CSS,
+		theme=gr.themes.Soft(primary_hue="green", secondary_hue="emerald", neutral_hue="slate"),
+	) as demo:
+		with gr.Column(elem_id="vantage-shell"):
+			gr.Markdown(
+				"""
+<div id='vantage-header'>
+  <h1>Vantage — Document Intelligence</h1>
+  <p>Enterprise RAG from a high-level view: ingest, extract, and answer with grounded citations.</p>
+</div>
+""",
 			)
 
-		with gr.Tab("Query"):
-			query_input = gr.Textbox(label="Ask a question about your documents", lines=2)
-			query_button = gr.Button("Submit")
-			query_answer = gr.Textbox(label="Answer", interactive=False, lines=6)
-			query_sources = gr.Dataframe(
-				label="Sources",
-				headers=["Document", "Chunk", "Excerpt"],
-				value=[],
-			)
-			query_latency = gr.Textbox(label="Latency", interactive=False)
+			with gr.Tab("Ingest"):
+				with gr.Column(elem_classes=["vantage-card"]):
+					ingest_files = gr.File(label="Upload Files", file_count="multiple")
+					ingest_folder_path = gr.Textbox(label="Or paste a folder path")
+					ingest_button = gr.Button("Ingest", variant="primary")
+					ingest_progress = gr.Textbox(label="Progress", interactive=False)
+					ingest_summary = gr.Dataframe(
+						label="Ingest Summary",
+						headers=["Filename", "Type", "Chunks", "Fields", "Status"],
+						value=[],
+					)
+
+			with gr.Tab("Query"):
+				with gr.Column(elem_classes=["vantage-card"]):
+					query_input = gr.Textbox(label="Ask a question about your documents", lines=2)
+					query_button = gr.Button("Submit", variant="primary")
+					query_answer = gr.Textbox(label="Answer", interactive=False, lines=6)
+					query_sources = gr.Dataframe(
+						label="Sources",
+						headers=["Document", "Chunk", "Excerpt"],
+						value=[],
+					)
+					query_latency = gr.Textbox(label="Latency", interactive=False)
 
 		ingest_button.click(
 			fn=on_ingest_submit,
