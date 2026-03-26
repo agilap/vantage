@@ -24,6 +24,38 @@ PARSE_TIMEOUT_BY_TYPE_SECONDS = {
 EMBED_EXTRACT_TIMEOUT_SECONDS = 180
 
 
+def _file_size_mb(file_path: str) -> float:
+	"""Return file size in MB, defaulting safely on file errors."""
+	try:
+		return Path(file_path).stat().st_size / (1024 * 1024)
+	except Exception:
+		return 0.0
+
+
+def _ingest_timeout_for_file(file_path: str, file_type: str) -> int:
+	"""Compute adaptive timeout so larger files get enough processing budget."""
+	size_mb = _file_size_mb(file_path)
+	if file_type == "pdf":
+		# Annual reports are often table-heavy and much slower to parse/chunk.
+		return int(min(1200, max(300, 240 + (size_mb * 30))))
+	if file_type == "excel":
+		return int(min(900, max(240, 180 + (size_mb * 20))))
+	if file_type == "email":
+		return int(min(300, max(120, 90 + (size_mb * 10))))
+	return FILE_INGEST_TIMEOUT_SECONDS
+
+
+def _parse_timeout_for_file(file_path: str, file_type: str) -> int:
+	"""Compute parse timeout with extra headroom for large files."""
+	base = PARSE_TIMEOUT_BY_TYPE_SECONDS.get(file_type, 60)
+	size_mb = _file_size_mb(file_path)
+	if file_type == "pdf":
+		return int(min(900, max(base, 90 + (size_mb * 20))))
+	if file_type == "excel":
+		return int(min(600, max(base, 60 + (size_mb * 12))))
+	return int(base)
+
+
 def detect_file_type(file_path: str) -> str:
 	"""Detect file type by extension only."""
 	suffix = Path(file_path).suffix.lower()
@@ -301,7 +333,7 @@ async def ingest_file(file_path: str) -> dict:
 	)
 
 	try:
-		parse_timeout = PARSE_TIMEOUT_BY_TYPE_SECONDS.get(file_type, 60)
+		parse_timeout = _parse_timeout_for_file(file_path, file_type)
 		if file_type == "pdf":
 			parsed = await asyncio.wait_for(asyncio.to_thread(parse_pdf, file_path), timeout=parse_timeout)
 			parse_error = parsed.get("error")
@@ -378,12 +410,13 @@ async def ingest_file(file_path: str) -> dict:
 
 		_update_document_status(document_id, status="processing")
 
+		embed_extract_timeout = max(EMBED_EXTRACT_TIMEOUT_SECONDS, int(parse_timeout * 1.8))
 		_, extracted_fields = await asyncio.wait_for(
 			asyncio.gather(
 				embed_and_store_chunks(document_id, chunks, file_type),
 				run_extraction(document_id, chunks, file_type),
 			),
-			timeout=EMBED_EXTRACT_TIMEOUT_SECONDS,
+			timeout=embed_extract_timeout,
 		)
 
 		_bulk_insert_chunks(document_id, chunks)
@@ -419,19 +452,21 @@ async def ingest_file(file_path: str) -> dict:
 		raise
 
 
-async def ingest_file_with_timeout(file_path: str, timeout_seconds: int = FILE_INGEST_TIMEOUT_SECONDS) -> dict:
+async def ingest_file_with_timeout(file_path: str, timeout_seconds: int | None = None) -> dict:
 	"""Run ingest_file with a hard timeout so one stuck file cannot block batches."""
 	filename = Path(file_path).name
+	file_type = detect_file_type(file_path)
+	effective_timeout = timeout_seconds if timeout_seconds is not None else _ingest_timeout_for_file(file_path, file_type)
 	try:
-		return await asyncio.wait_for(ingest_file(file_path), timeout=timeout_seconds)
+		return await asyncio.wait_for(ingest_file(file_path), timeout=effective_timeout)
 	except asyncio.TimeoutError:
 		return {
 			"filename": filename,
-			"file_type": detect_file_type(file_path),
+			"file_type": file_type,
 			"chunk_count": 0,
 			"field_count": 0,
 			"status": "failed",
-			"error": "timeout after %ss" % timeout_seconds,
+			"error": "timeout after %ss" % effective_timeout,
 		}
 
 

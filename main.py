@@ -19,7 +19,7 @@ import gradio as gr
 sys.modules.pop("chunk", None)
 
 import db
-from ingest import FILE_INGEST_TIMEOUT_SECONDS, detect_file_type, ingest_file_with_timeout
+from ingest import detect_file_type, ingest_file_with_timeout
 from retrieval import query_documents
 
 
@@ -522,10 +522,7 @@ async def _ingest_one_file(file_path: str) -> dict:
 	"""Run ingest for one file and normalize failures to result dict."""
 	filename = Path(file_path).name
 	try:
-		return await asyncio.wait_for(
-			ingest_file_with_timeout(file_path, timeout_seconds=FILE_INGEST_TIMEOUT_SECONDS),
-			timeout=FILE_INGEST_TIMEOUT_SECONDS + 5,
-		)
+		return await ingest_file_with_timeout(file_path)
 	except asyncio.TimeoutError:
 		return {
 			"filename": filename,
@@ -533,7 +530,7 @@ async def _ingest_one_file(file_path: str) -> dict:
 			"chunk_count": 0,
 			"field_count": 0,
 			"status": "failed",
-			"error": "timeout after %ss" % FILE_INGEST_TIMEOUT_SECONDS,
+			"error": "timeout while ingesting",
 		}
 	except Exception as error:
 		return {

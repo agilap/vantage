@@ -156,8 +156,14 @@ async def query_documents(query: str, n_results: int = 5) -> dict:
 			)
 
 		if sources:
+			def _trim_excerpt(text: str, max_chars: int = 900) -> str:
+				value = str(text or "")
+				if len(value) <= max_chars:
+					return value
+				return value[: max_chars - 1].rstrip() + "..."
+
 			context = "\n".join(
-				"Document: %s\nExcerpt: %s\n---" % (source["filename"], source["excerpt"])
+				"Document: %s\nExcerpt: %s\n---" % (source["filename"], _trim_excerpt(source["excerpt"]))
 				for source in sources
 			)
 			system_prompt = (
@@ -167,7 +173,7 @@ async def query_documents(query: str, n_results: int = 5) -> dict:
 				"Return a clear, direct answer — no preamble."
 			)
 			user_prompt = f"Question: {query}\n\nDocument excerpts:\n{context}"
-			response = await call_openai(client, system_prompt, user_prompt, max_tokens=700)
+			response = await call_openai(client, system_prompt, user_prompt, max_tokens=350)
 			content = response.choices[0].message.content
 			answer = str(content).strip() if content is not None else default_answer
 			if not answer:

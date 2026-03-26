@@ -8,6 +8,7 @@ from retry import call_openai, safe_parse, with_retry
 
 
 client = AsyncOpenAI(api_key=config.OPENAI_API_KEY)
+MAX_EXTRACTION_CHARS = 2600
 
 
 @with_retry(exceptions=(openai.RateLimitError, openai.APITimeoutError))
@@ -23,8 +24,10 @@ Rules:
 - field_value: exact text from the document — do not paraphrase
 - confidence: high if explicitly stated, medium if inferred, low if uncertain
 - If no fields are found, return []"""
-	user_prompt = f"File type: {file_type}\n\nChunk content:\n{chunk.get('content', '')}"
-	response = await call_openai(client, system_prompt, user_prompt, max_tokens=1000)
+	content = str(chunk.get("content", ""))
+	trimmed_content = content[:MAX_EXTRACTION_CHARS]
+	user_prompt = f"File type: {file_type}\n\nChunk content:\n{trimmed_content}"
+	response = await call_openai(client, system_prompt, user_prompt, max_tokens=350)
 	parsed = safe_parse(response, "array")
 	return parsed if isinstance(parsed, list) else []
 
