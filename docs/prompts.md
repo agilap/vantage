@@ -1,28 +1,23 @@
-# Prompts
+# Prompting Strategy
 
-All prompts used in Vantage. Every OpenAI call has its own entry. Model for all calls: gpt-4o-mini. Temperature: 0.2.
+### System Prompt (retrieval.py)
+```text
+You are a document analyst. Answer the question using ONLY the provided document excerpts.
+If the answer is not in the excerpts, say 'Not found in the ingested documents.'
+Always cite which document your answer comes from.
+Return a clear, direct answer — no preamble.
+```
 
----
-## P-01 - Email Cleanup
-**File:** `parse/email.py -> parse_email()`
-**Purpose:** Parse plain-text email headers and body without an OpenAI call.
-**Model:** gpt-4o-mini
-**Concurrent?** no
+"Answer using ONLY the provided document excerpts" prevents hallucination by grounding generation in retrieved context only. This keeps answers tied to evidence that can be shown back to the user instead of model priors.
 
-**System prompt:**
-N/A (no OpenAI prompt in this function)
+"If the answer is not in the excerpts, say 'Not found in the ingested documents.'" gives the UI a stable sentinel for no-result behavior. A deterministic fallback string is much easier to detect than many possible free-form refusals.
 
-**User prompt:**
-N/A (no OpenAI prompt in this function)
+"Always cite which document your answer comes from" makes every answer auditable. Because filename-level provenance is displayed in the interface, users can quickly verify or challenge the response.
 
----
-## P-02 - Field Extractor
-**File:** `extract.py -> extract_fields()`
-**Purpose:** Extract structured fields from each chunk.
-**Model:** gpt-4o-mini
-**Concurrent?** yes
+"Return a clear, direct answer — no preamble" reduces token overhead and avoids verbose filler. Over many queries, this improves latency and controls inference cost.
 
-**System prompt:**
+### Field Extraction Prompt (extract.py)
+```text
 You are a document analyst. Extract all key structured fields from this document chunk.
 Return ONLY a JSON array. No explanation, no markdown, no preamble.
 Shape: [{ "field_name": "...", "field_value": "...", "confidence": "high" | "medium" | "low" }]
@@ -33,42 +28,29 @@ Rules:
 - field_value: exact text from the document — do not paraphrase
 - confidence: high if explicitly stated, medium if inferred, low if uncertain
 - If no fields are found, return []
+```
 
-**User prompt:**
-File type: {file_type}
+Structured JSON output is required so extraction can flow directly into downstream parsing and storage with minimal transformation. In this codebase, `safe_parse` in `retry.py` tolerates malformed model output and recovers safely, which prevents ingest from crashing when a single response is imperfect.
 
-Chunk content:
-{trimmed_content}
+Confidence labels support downstream quality controls instead of all-or-nothing acceptance. Low-confidence fields can be filtered by threshold while still preserving higher-confidence facts from the same document.
 
----
-## P-03 - Query Answerer
-**File:** `retrieval.py -> query_documents()`
-**Purpose:** Answer user questions using only retrieved excerpt context.
-**Model:** gpt-4o-mini
-**Concurrent?** no
+### Query Design Tips
+- Be specific about time boundaries: ask for "fiscal year 2023" instead of "last year".
+- Include company names explicitly, especially for cross-document questions.
+- Add file-type hints for non-PDF sources, such as "in the email" or "in the Excel sheet".
+- For ratios like "as a percentage of," first ask for the raw numerator and denominator values if they are not already co-located.
+- Avoid prompts that require multi-step arithmetic not present in source text (for example CAGR); request the raw figures first.
+- Broad comparisons across many filings can miss lower-ranked chunks; narrow to two or three companies for higher precision.
+- Ask for source-backed outputs explicitly (for example: "cite the filing name") to improve auditability.
 
-**System prompt:**
-You are a document analyst. Answer the question using ONLY the provided document excerpts.
-If the answer is not in the excerpts, say 'Not found in the ingested documents.'
-Always cite which document your answer comes from.
-Return a clear, direct answer — no preamble.
-
-**User prompt:**
-Question: {query}
-
-Document excerpts:
-{context}
-
----
-## P-04 - Chunk Summarizer
-**File:** `extract.py -> summarize_chunk()`
-**Purpose:** Generate a one-sentence summary for a chunk.
-**Model:** gpt-4o-mini
-**Concurrent?** yes
-
-**System prompt:**
-Summarize this document chunk in exactly one sentence. Return only the sentence — no labels, no preamble.
-
-**User prompt:**
-{chunk.content}
----
+### Edge Cases Handled
+| Edge Case | How It Is Handled | File |
+|---|---|---|
+| Scanned PDF (no text layer) | pdfplumber returns empty string; parser falls back to PyMuPDF OCR path | parse/pdf.py |
+| Excel with merged header cells | openpyxl returns None past first cell; parser forward-fills the value rightward | parse/excel.py |
+| Excel with blank rows | Rows where all values are None are dropped before chunking | parse/excel.py |
+| Oversized chunk (>8 000 tokens) | Recursive bisection in _split_long_text() until each piece fits | chunk.py |
+| PDF with no detectable sections (<3 headings) | Falls back to 500-word sliding window with 50-word overlap | chunk.py |
+| Embedding cache hit | SHA-256 keyed disk cache checked before every OpenAI call; hit skips API | cache.py |
+| Email thread with multiple From: boundaries | Body split per boundary into separate chunks so replies are individually retrievable | chunk.py |
+| Empty email body | chunk_email() checks for skipped flag and empty body; returns [] with no chunks created | chunk.py |
