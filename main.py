@@ -772,7 +772,7 @@ def build_ui() -> gr.Blocks:
 						"""
 <section class="vantage-drop">
   <h3>Drop files here</h3>
-  <p>Supported: PDF, TXT, CSV (up to 100MB)</p>
+	<p>Supported: PDF, TXT, CSV, XLSX, XLS, EML (up to 100MB)</p>
 </section>
 """
 						)
