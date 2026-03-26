@@ -11,10 +11,12 @@ from embed import embed_and_store_chunks
 from extract import run_extraction
 from parse.email import parse_email
 from parse.excel import parse_excel
+from parse.htm import parse_htm
 from parse.pdf import parse_pdf
 
 
 _FILE_HASH_COLUMN_READY = False
+_FILE_TYPE_CONSTRAINT_READY = False
 FILE_INGEST_TIMEOUT_SECONDS = 240
 PARSE_TIMEOUT_BY_TYPE_SECONDS = {
 	"pdf": 90,
@@ -40,6 +42,8 @@ def _ingest_timeout_for_file(file_path: str, file_type: str) -> int:
 		# batched extraction (6 batches * 25 chunks * ~3s avg + 2s sleep) ~120s
 		# Total realistic ceiling: ~300s. Add 2x safety margin for retries.
 		return int(min(1800, max(600, 300 + (size_mb * 40))))
+	if file_type == "htm":
+		return int(min(1200, max(300, 240 + (size_mb * 25))))
 	if file_type == "excel":
 		return int(min(900, max(240, 180 + (size_mb * 20))))
 	if file_type == "email":
@@ -53,9 +57,44 @@ def _parse_timeout_for_file(file_path: str, file_type: str) -> int:
 	size_mb = _file_size_mb(file_path)
 	if file_type == "pdf":
 		return int(min(600, max(120, 90 + (size_mb * 15))))
+	if file_type == "htm":
+		return int(min(300, max(60, 45 + (size_mb * 10))))
 	if file_type == "excel":
 		return int(min(600, max(base, 60 + (size_mb * 12))))
 	return int(base)
+
+
+def _sniff_txt_type(file_path: str) -> str:
+	"""Sniff a .txt file to determine if it is tabular or email-like."""
+	try:
+		with open(file_path, "r", encoding="utf-8", errors="replace") as file:
+			lines = []
+			for line in file:
+				stripped = line.strip()
+				if stripped:
+					lines.append(stripped)
+				if len(lines) >= 5:
+					break
+
+		if not lines:
+			return "email"
+
+		tab_lines = sum(1 for line in lines if "\t" in line)
+		if tab_lines >= max(2, len(lines) // 2):
+			return "excel"
+
+		first = lines[0].lower()
+		if any(first.startswith(header) for header in ("subject:", "from:", "to:", "date:", "message-id:")):
+			return "email"
+
+		if lines[0].count(",") >= 2:
+			col_counts = [line.count(",") for line in lines]
+			if max(col_counts) - min(col_counts) <= 1:
+				return "excel"
+
+		return "email"
+	except Exception:
+		return "email"
 
 
 def detect_file_type(file_path: str) -> str:
@@ -63,10 +102,16 @@ def detect_file_type(file_path: str) -> str:
 	suffix = Path(file_path).suffix.lower()
 	if suffix == ".pdf":
 		return "pdf"
-	if suffix in {".xlsx", ".xls", ".csv"}:
+	if suffix in {".xlsx", ".xls", ".xlsm", ".xlsb", ".ods"}:
 		return "excel"
-	if suffix in {".txt", ".eml"}:
+	if suffix in {".csv", ".tsv"}:
+		return "excel"
+	if suffix in {".eml"}:
 		return "email"
+	if suffix in {".htm", ".html"}:
+		return "htm"
+	if suffix == ".txt":
+		return _sniff_txt_type(file_path)
 	return "unknown"
 
 
@@ -92,6 +137,29 @@ def _ensure_file_hash_column() -> None:
 			cur.execute("CREATE INDEX IF NOT EXISTS idx_documents_file_hash ON documents(file_hash)")
 		conn.commit()
 		_FILE_HASH_COLUMN_READY = True
+	finally:
+		release_connection(conn)
+
+
+def _ensure_htm_file_type_allowed() -> None:
+	"""Ensure documents.file_type constraint accepts htm."""
+	global _FILE_TYPE_CONSTRAINT_READY
+	if _FILE_TYPE_CONSTRAINT_READY:
+		return
+
+	conn = get_connection()
+	try:
+		with conn.cursor() as cur:
+			cur.execute("ALTER TABLE documents DROP CONSTRAINT IF EXISTS documents_file_type_check")
+			cur.execute(
+				"""
+				ALTER TABLE documents
+				ADD CONSTRAINT documents_file_type_check
+				CHECK (file_type IN ('pdf', 'excel', 'email', 'htm', 'unknown'))
+				"""
+			)
+		conn.commit()
+		_FILE_TYPE_CONSTRAINT_READY = True
 	finally:
 		release_connection(conn)
 
@@ -305,6 +373,7 @@ async def ingest_file(file_path: str) -> dict:
 
 	file_hash = _compute_file_hash(file_path)
 	file_type = detect_file_type(file_path)
+	_ensure_htm_file_type_allowed()
 
 	if file_type == "unknown":
 		skipped_document_id = str(uuid4())
@@ -339,6 +408,13 @@ async def ingest_file(file_path: str) -> dict:
 		parse_method = ""
 		if file_type == "pdf":
 			parsed = await asyncio.wait_for(asyncio.to_thread(parse_pdf, file_path), timeout=parse_timeout)
+			parse_error = parsed.get("error")
+			parse_method = str(parsed.get("metadata", {}).get("parse_method", ""))
+		elif file_type == "htm":
+			parsed = await asyncio.wait_for(
+				asyncio.to_thread(parse_htm, file_path),
+				timeout=_parse_timeout_for_file(file_path, "htm"),
+			)
 			parse_error = parsed.get("error")
 			parse_method = str(parsed.get("metadata", {}).get("parse_method", ""))
 		elif file_type == "excel":

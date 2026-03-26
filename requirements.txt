@@ -7,3 +7,8 @@ chromadb
 psycopg2-binary
 gradio
 python-dotenv
+
+# Optional - only needed for .xls, .xlsb, .ods support
+xlrd>=2.0.1
+pyxlsb>=1.0.10
+odfpy>=1.4.1

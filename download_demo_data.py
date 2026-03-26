@@ -320,15 +320,17 @@ def summarize_dataset(downloaded_this_run: int) -> None:
         if path.stat().st_size < 500:
             print(f"[WARN] {path.name} is under 500 bytes")
 
-    pdf_htm_count = _count_files(files, (".pdf", ".htm"))
+    htm_count = _count_files(files, (".htm", ".html"))
+    pdf_count = _count_files(files, (".pdf",))
     csv_count = _count_files(files, (".csv",))
     email_count = sum(1 for p in files if p.suffix.lower() == ".txt" and p.name.startswith("enron_email_"))
 
     print("\n=== DOWNLOAD COMPLETE ===")
-    print(f"PDFs/HTM:  {pdf_htm_count} files")
-    print(f"CSVs:      {csv_count} files")
-    print(f"Emails:    {email_count} files")
-    print(f"Total:     {len(files)} files  ({total_mb:.1f} MB)")
+    print(f"HTM files:  {htm_count} files")
+    print(f"PDFs:       {pdf_count} files")
+    print(f"CSVs:       {csv_count} files")
+    print(f"Emails:     {email_count} files")
+    print(f"Total:      {len(files)} files ({total_mb:.1f} MB)")
     print(f"Duplicates skipped: {_duplicate_skips}")
     print(f"Failures:  {_failures}")
 

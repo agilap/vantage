@@ -206,7 +206,7 @@ def _chunk_email(parsed: dict) -> list[dict]:
 
 def chunk_document(parsed: dict, file_type: str) -> list[dict]:
 	"""Chunk a parsed document and return globally indexed chunk records."""
-	if file_type == "pdf":
+	if file_type in {"pdf", "htm"}:
 		raw_chunks = _chunk_pdf(parsed)
 	elif file_type == "excel":
 		raw_chunks = _chunk_excel(parsed)
