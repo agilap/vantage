@@ -269,7 +269,53 @@ async def ingest_file(file_path: str) -> dict:
 				"error": str(parse_error),
 			}
 
+		if isinstance(parsed, dict) and parsed.get("skipped") is True:
+			skip_reason = "content skipped by parser"
+			_update_document_status(document_id, status="skipped", error=skip_reason)
+			return {
+				"document_id": document_id,
+				"filename": filename,
+				"file_type": file_type,
+				"chunk_count": 0,
+				"field_count": 0,
+				"status": "skipped",
+				"skipped": True,
+				"error": skip_reason,
+			}
+
 		chunks = chunk_document(parsed, file_type)
+		if not chunks:
+			error_message = "no chunks generated"
+			all_excel_sheets_skipped = (
+				file_type == "excel"
+				and isinstance(parsed, list)
+				and len(parsed) > 0
+				and all(isinstance(item, dict) and item.get("skipped") is True for item in parsed)
+			)
+			if all_excel_sheets_skipped:
+				_update_document_status(document_id, status="skipped", error=error_message)
+				return {
+					"document_id": document_id,
+					"filename": filename,
+					"file_type": file_type,
+					"chunk_count": 0,
+					"field_count": 0,
+					"status": "skipped",
+					"skipped": True,
+					"error": error_message,
+				}
+
+			_update_document_status(document_id, status="failed", error=error_message)
+			return {
+				"document_id": document_id,
+				"filename": filename,
+				"file_type": file_type,
+				"chunk_count": 0,
+				"field_count": 0,
+				"status": "failed",
+				"error": error_message,
+			}
+
 		for chunk in chunks:
 			chunk["id"] = str(uuid4())
 
