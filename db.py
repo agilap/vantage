@@ -1,4 +1,5 @@
 from pathlib import Path
+from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
 import psycopg2
 from psycopg2.pool import ThreadedConnectionPool
@@ -9,6 +10,22 @@ import config
 _pool: ThreadedConnectionPool | None = None
 
 
+def _sanitize_dsn(dsn: str) -> str:
+	"""Remove URI query params unsupported by psycopg2 parser."""
+	parsed = urlparse(dsn)
+	if not parsed.query:
+		return dsn
+
+	blocked_params = {"pgbouncer"}
+	query_items = [(k, v) for k, v in parse_qsl(parsed.query, keep_blank_values=True) if k.lower() not in blocked_params]
+
+	if len(query_items) == len(parse_qsl(parsed.query, keep_blank_values=True)):
+		return dsn
+
+	clean_query = urlencode(query_items, doseq=True)
+	return urlunparse(parsed._replace(query=clean_query))
+
+
 def get_pool() -> ThreadedConnectionPool:
 	"""Return a singleton ThreadedConnectionPool for runtime queries."""
 	global _pool
@@ -16,7 +33,7 @@ def get_pool() -> ThreadedConnectionPool:
 		_pool = ThreadedConnectionPool(
 			minconn=int(config.POOL_MIN),
 			maxconn=int(config.POOL_MAX),
-			dsn=config.DATABASE_URL,
+			dsn=_sanitize_dsn(config.DATABASE_URL),
 		)
 	return _pool
 
@@ -36,7 +53,7 @@ def init_db() -> None:
 	schema_path = Path(__file__).resolve().parent / "schema.sql"
 	schema_sql = schema_path.read_text(encoding="utf-8")
 
-	conn = psycopg2.connect(dsn=config.DATABASE_DIRECT_URL)
+	conn = psycopg2.connect(dsn=_sanitize_dsn(config.DATABASE_DIRECT_URL))
 	try:
 		with conn.cursor() as cur:
 			cur.execute(schema_sql)
