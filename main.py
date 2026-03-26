@@ -248,6 +248,27 @@ APP_CSS = """
 	border-color: #c9d9cb !important;
 }
 
+#vantage-shell .gr-file .file-drop-area {
+	border: 1px dashed #8db79b !important;
+}
+
+#vantage-shell .gr-file button,
+#vantage-shell .gr-file [role="button"],
+#vantage-shell .gr-file .upload-button {
+	background: linear-gradient(135deg, #1e5f41, #18402f) !important;
+	color: #ffffff !important;
+	border: 1px solid #2f6a4f !important;
+	font-weight: 700 !important;
+	border-radius: 8px !important;
+}
+
+#vantage-shell .gr-file button:hover,
+#vantage-shell .gr-file [role="button"]:hover,
+#vantage-shell .gr-file .upload-button:hover {
+	background: linear-gradient(135deg, #246b4a, #1d5039) !important;
+	color: #ffffff !important;
+}
+
 #vantage-shell input,
 #vantage-shell textarea {
 	background: #f8fbf8 !important;
@@ -737,56 +758,45 @@ def build_ui() -> gr.Blocks:
 
 			with gr.Column(elem_classes=["vantage-content"]):
 				with gr.Tab("Ingest"):
-					with gr.Row(equal_height=True):
-						with gr.Column(scale=8):
-							gr.HTML(
-								"""
+					gr.HTML(
+						"""
 <section class="vantage-drop">
   <h3>Drop files here</h3>
   <p>Supported: PDF, TXT, CSV (up to 100MB)</p>
 </section>
 """
-							)
-							with gr.Column(elem_classes=["vantage-panel"]):
-								gr.HTML("<div class='vantage-subtle-label'>Upload files</div>")
-								ingest_files = gr.File(show_label=False, file_count="multiple")
-								gr.HTML("<div class='vantage-subtle-label'>Or paste a folder path</div>")
-								ingest_folder_path = gr.Textbox(show_label=False, placeholder="/path/to/folder")
-								ingest_button = gr.Button("Ingest", variant="primary")
-								gr.HTML("<div class='vantage-subtle-label'>Ingest progress</div>")
-								ingest_status = gr.HTML(
-									"<div style='font-weight:700;color:#1e5f41;'>Ready</div><div style='font-size:13px;color:#2a4334;'>Processing files...</div>"
-								)
-								ingest_progress = gr.Markdown("### Ready\n\n**Active:** Waiting for files  \n**Completed:** 0/0")
-								ingest_progress_bar = gr.Slider(
-									show_label=False,
-									minimum=0,
-									maximum=100,
-									value=0,
-									step=1,
-									interactive=False,
-								)
-								gr.HTML("<div class='vantage-subtle-label'>Ingest summary</div>")
-								ingest_summary = gr.Dataframe(
-									show_label=False,
-									headers=["Filename", "Type", "Chunks", "Fields", "Status"],
-									value=[],
-								)
-
-						with gr.Column(scale=4):
-							gr.HTML(
-								"""
-<aside class="vantage-panel">
-  <h4>Recent Activity</h4>
-	<div style="display:flex;flex-direction:column;gap:12px;font-family:Inter,sans-serif;color:#1f2d24;font-size:13px;line-height:1.45;">
-		<div>Successfully indexed • compliance_check_v2.txt</div>
-		<div>Successfully indexed • marketing_strategy_north_star.pdf</div>
-		<div style="color:#b42318;font-weight:600;">Failed: Parse error • corrupted_data_dump.csv</div>
-		<div>Successfully indexed • product_specs_master.txt</div>
-  </div>
-</aside>
-"""
-							)
+						)
+					with gr.Column(elem_classes=["vantage-panel"]):
+						gr.HTML("<div class='vantage-subtle-label'>Upload files</div>")
+						gr.HTML("<div style='font-family:Inter,sans-serif;font-size:13px;color:#365646;'>Click the upload button or drag and drop files. Supported: PDF, XLSX/XLS, CSV, TXT, EML.</div>")
+						ingest_files = gr.File(
+							label="Select Files To Ingest",
+							show_label=True,
+							file_count="multiple",
+							file_types=[".pdf", ".xlsx", ".xls", ".csv", ".txt", ".eml"],
+						)
+						gr.HTML("<div class='vantage-subtle-label'>Or paste a folder path</div>")
+						ingest_folder_path = gr.Textbox(show_label=False, placeholder="/path/to/folder")
+						ingest_button = gr.Button("Ingest", variant="primary")
+						gr.HTML("<div class='vantage-subtle-label'>Ingest progress</div>")
+						ingest_status = gr.HTML(
+							"<div style='font-weight:700;color:#1e5f41;'>Ready</div><div style='font-size:13px;color:#2a4334;'>Processing files...</div>"
+						)
+						ingest_progress = gr.Markdown("### Ready\n\n**Active:** Waiting for files  \n**Completed:** 0/0")
+						ingest_progress_bar = gr.Slider(
+							show_label=False,
+							minimum=0,
+							maximum=100,
+							value=0,
+							step=1,
+							interactive=False,
+						)
+						gr.HTML("<div class='vantage-subtle-label'>Ingest summary</div>")
+						ingest_summary = gr.Dataframe(
+							show_label=False,
+							headers=["Filename", "Type", "Chunks", "Fields", "Status"],
+							value=[],
+						)
 
 				with gr.Tab("Query"):
 					with gr.Row(equal_height=True):
