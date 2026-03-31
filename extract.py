@@ -51,7 +51,6 @@ async def summarize_chunk(chunk: dict) -> str:
 		return str(content).strip() if content is not None else ""
 
 
-@with_retry(exceptions=(openai.RateLimitError, openai.APITimeoutError))
 async def run_extraction(document_id: str, chunks: list[dict], file_type: str) -> list[dict]:
 	"""Run field extraction concurrently with rate-limit-aware batching."""
 	if len(chunks) <= BATCH_SIZE:
