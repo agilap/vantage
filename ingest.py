@@ -570,7 +570,7 @@ async def ingest_folder(folder_path: str) -> list[dict]:
 		if not path.is_file():
 			continue
 		try:
-			result = await ingest_file_with_timeout(str(path), timeout_seconds=FILE_INGEST_TIMEOUT_SECONDS)
+			result = await ingest_file_with_timeout(str(path))
 			results.append(result)
 		except Exception as error:
 			print("Failed to ingest %s: %s" % (path.name, error))
