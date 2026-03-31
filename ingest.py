@@ -173,7 +173,12 @@ def check_duplicate(file_path: str) -> str | None:
 	try:
 		with conn.cursor() as cur:
 			cur.execute(
-				"SELECT id::text FROM documents WHERE file_hash = %s LIMIT 1",
+					"""
+					SELECT id::text FROM documents
+					WHERE file_hash = %s
+					AND status NOT IN ('failed')
+					LIMIT 1
+					""",
 				(file_hash,),
 			)
 			row = cur.fetchone()
