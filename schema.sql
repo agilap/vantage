@@ -2,7 +2,7 @@
 CREATE TABLE IF NOT EXISTS documents (
     id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     filename        TEXT NOT NULL,
-    file_type       TEXT NOT NULL CHECK (file_type IN ('pdf', 'excel', 'email', 'unknown')),
+    file_type       TEXT NOT NULL CHECK (file_type IN ('pdf', 'excel', 'email', 'htm', 'unknown')),
     source_path     TEXT,
     page_count      INTEGER,
     sheet_count     INTEGER,
