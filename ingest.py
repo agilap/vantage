@@ -125,32 +125,44 @@ def _compute_file_hash(file_path: str) -> str:
 
 
 def _ensure_file_hash_column() -> None:
-	"""Ensure documents.file_hash exists for duplicate detection."""
+	"""Ensure documents.file_hash exists - runs DDL on direct connection."""
 	global _FILE_HASH_COLUMN_READY
 	if _FILE_HASH_COLUMN_READY:
 		return
 
-	conn = get_connection()
+	import config
+	import psycopg2
+	from db import _sanitize_dsn
+
+	conn = psycopg2.connect(dsn=_sanitize_dsn(config.DATABASE_DIRECT_URL))
 	try:
 		with conn.cursor() as cur:
 			cur.execute("ALTER TABLE documents ADD COLUMN IF NOT EXISTS file_hash TEXT")
-			cur.execute("CREATE INDEX IF NOT EXISTS idx_documents_file_hash ON documents(file_hash)")
+			cur.execute(
+				"CREATE INDEX IF NOT EXISTS idx_documents_file_hash ON documents(file_hash)"
+			)
 		conn.commit()
 		_FILE_HASH_COLUMN_READY = True
 	finally:
-		release_connection(conn)
+		conn.close()
 
 
 def _ensure_htm_file_type_allowed() -> None:
-	"""Ensure documents.file_type constraint accepts htm."""
+	"""Ensure file_type constraint accepts htm - runs DDL on direct connection."""
 	global _FILE_TYPE_CONSTRAINT_READY
 	if _FILE_TYPE_CONSTRAINT_READY:
 		return
 
-	conn = get_connection()
+	import config
+	import psycopg2
+	from db import _sanitize_dsn
+
+	conn = psycopg2.connect(dsn=_sanitize_dsn(config.DATABASE_DIRECT_URL))
 	try:
 		with conn.cursor() as cur:
-			cur.execute("ALTER TABLE documents DROP CONSTRAINT IF EXISTS documents_file_type_check")
+			cur.execute(
+				"ALTER TABLE documents DROP CONSTRAINT IF EXISTS documents_file_type_check"
+			)
 			cur.execute(
 				"""
 				ALTER TABLE documents
@@ -161,7 +173,7 @@ def _ensure_htm_file_type_allowed() -> None:
 		conn.commit()
 		_FILE_TYPE_CONSTRAINT_READY = True
 	finally:
-		release_connection(conn)
+		conn.close()
 
 
 def check_duplicate(file_path: str) -> str | None:
