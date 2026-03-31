@@ -485,6 +485,50 @@ def _render_active_datasets_html(limit: int = 8) -> str:
 	)
 
 
+def _has_ingested_documents() -> bool:
+	"""Return True if at least one document with status done exists."""
+	conn = db.get_connection()
+	try:
+		with conn.cursor() as cur:
+			cur.execute(
+				"SELECT 1 FROM documents WHERE status = 'done' LIMIT 1"
+			)
+			return cur.fetchone() is not None
+	except Exception:
+		return False
+	finally:
+		db.release_connection(conn)
+
+
+def _render_empty_state_html() -> str:
+	"""Render an empty state banner or empty string if data exists."""
+	if _has_ingested_documents():
+		return ""
+	return """
+<div style='
+    background: linear-gradient(135deg, #e8f3ec, #dcebe3);
+    border: 1px solid #b8d4c0;
+    border-radius: 10px;
+    padding: 20px 24px;
+    margin-bottom: 12px;
+    font-family: Inter, sans-serif;
+'>
+    <div style='font-size:15px;font-weight:800;color:#18402f;margin-bottom:6px;'>
+        No documents ingested yet
+    </div>
+    <div style='font-size:13px;color:#2a4334;line-height:1.6;'>
+        Go to the <strong>Ingest tab</strong> and upload files or paste a folder
+        path to get started. Supported formats: PDF, XLSX, CSV, TXT, EML, HTM.
+    </div>
+    <div style='margin-top:10px;font-size:12px;color:#3e5d4b;'>
+        Once files are ingested you can ask questions like:<br>
+        <em>"What were the key risks mentioned in the annual reports?"</em><br>
+        <em>"Which companies reported EBITDA above $1B?"</em>
+    </div>
+</div>
+"""
+
+
 def _summary_row(result: dict, fallback_filename: str = "") -> list[Any]:
 	"""Build one ingest summary row."""
 	status = _status_for_result(result)
@@ -745,7 +789,14 @@ async def on_ingest_submit_ui(files: Any, folder_path: str):
 			"**Completed:** %d/%d"
 		) % (stage, active_text, completed, total)
 
-		yield status_html, progress_md, summary_rows, percent, _render_active_datasets_html()
+		yield (
+			status_html,
+			progress_md,
+			summary_rows,
+			percent,
+			_render_active_datasets_html(),
+			_render_empty_state_html(),
+		)
 
 
 def build_ui() -> gr.Blocks:
@@ -772,7 +823,7 @@ def build_ui() -> gr.Blocks:
 						"""
 <section class="vantage-drop">
   <h3>Drop files here</h3>
-	<p>Supported: PDF, TXT, CSV, XLSX, XLS, EML (up to 100MB)</p>
+	<p>Step 1: Ingest your files here. Then go to the Query tab to ask questions.</p>
 </section>
 """
 						)
@@ -821,6 +872,7 @@ def build_ui() -> gr.Blocks:
 """
 								)
 								gr.HTML("<div class='vantage-subtle-label'>Ask a question about your documents</div>")
+								empty_state_banner = gr.HTML(value=_render_empty_state_html())
 								query_input = gr.Textbox(show_label=False, lines=4)
 								query_button = gr.Button("Query Engine", variant="primary")
 								gr.HTML("<div class='vantage-subtle-label'>Answer</div>")
@@ -849,7 +901,14 @@ def build_ui() -> gr.Blocks:
 		ingest_button.click(
 			fn=on_ingest_submit_ui,
 			inputs=[ingest_files, ingest_folder_path],
-			outputs=[ingest_status, ingest_progress, ingest_summary, ingest_progress_bar, active_datasets],
+			outputs=[
+				ingest_status,
+				ingest_progress,
+				ingest_summary,
+				ingest_progress_bar,
+				active_datasets,
+				empty_state_banner,
+			],
 		)
 
 		query_button.click(
@@ -859,9 +918,9 @@ def build_ui() -> gr.Blocks:
 		)
 
 		demo.load(
-			fn=_render_active_datasets_html,
+			fn=lambda: (_render_active_datasets_html(), _render_empty_state_html()),
 			inputs=[],
-			outputs=[active_datasets],
+			outputs=[active_datasets, empty_state_banner],
 		)
 
 	return demo
